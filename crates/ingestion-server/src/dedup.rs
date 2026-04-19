@@ -1,21 +1,17 @@
-use std::collections::HashSet;
+use dashmap::DashSet;
 
 pub struct Dedup {
-    seen: HashSet<String>,
+    seen: DashSet<String>,
 }
 
 impl Dedup {
     pub fn new() -> Self {
         Self {
-            seen: HashSet::new(),
+            seen: DashSet::new(),
         }
     }
 
-    pub fn is_duplicate(&self, id: &str) -> bool {
-        self.seen.contains(id)
-    }
-
-    pub fn mark_seen(&mut self, id: String) {
-        self.seen.insert(id);
+    pub fn check_and_insert(&self, id: String) -> bool {
+        !self.seen.insert(id)
     }
 }
