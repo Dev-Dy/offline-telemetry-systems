@@ -3,9 +3,9 @@ use tokio::time::{Duration, sleep};
 use common::message::Message;
 use transport::tcp::connection::Connection;
 
-use crate::queue::memory::MemoryQueue;
+use crate::queue::disk::DiskQueue;
 
-pub async fn run(mut conn: Connection, mut queue: MemoryQueue) {
+pub async fn run(mut conn: Connection, mut queue: DiskQueue) {
     loop {
         if let Some(msg) = queue.peek() {
             println!("sending: {:?}", msg);
@@ -19,7 +19,9 @@ pub async fn run(mut conn: Connection, mut queue: MemoryQueue) {
             match conn.read().await {
                 Ok(Some(Message::Ack { message_id })) => {
                     println!("ack received: {}", message_id);
-                    queue.pop();
+                    if let Err(e) = queue.pop() {
+                        eprint!("pop failed: {}", e);
+                    };
                 }
                 Ok(_) => {
                     println!("unexpected response");
