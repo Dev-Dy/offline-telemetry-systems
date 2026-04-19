@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, rename};
 use std::io::{BufRead, BufReader, Write};
 
 use common::message::Message;
@@ -22,15 +22,16 @@ impl DiskQueue {
                     match line {
                         Ok(line) => match serde_json::from_str::<Message>(&line) {
                             Ok(msg) => queue.push_back(msg),
-                            Err(e) => eprintln!("failed to parse line: {}", e),
+                            Err(e) => {
+                                tracing::error!(error = %e, "skipping corrupted queue entry: {}", line)
+                            }
                         },
-                        Err(e) => eprintln!("failed to read line: {}", e),
+                        Err(e) => tracing::error!(error = %e, "failed reading queue file: {}", e),
                     }
                 }
             }
             Err(e) => {
-                // Not fatal: file may not exist yet
-                eprintln!("queue file not found or unreadable: {}", e);
+                tracing::error!(error = %e, "failed reading queue file");
             }
         }
 
@@ -49,6 +50,7 @@ impl DiskQueue {
         let line = serde_json::to_string(&msg).map_err(std::io::Error::other)?;
 
         writeln!(file, "{}", line)?;
+        file.sync_all()?;
 
         self.queue.push_back(msg);
         Ok(())
@@ -61,14 +63,17 @@ impl DiskQueue {
     pub fn pop(&mut self) -> std::io::Result<()> {
         self.queue.pop_front();
 
-        // Rewrite file (simple but correct approach)
-        let mut file = File::create(&self.file_path)?;
+        let temp_path = format!("{}.tmp", self.file_path);
 
-        for msg in &self.queue {
-            let line = serde_json::to_string(msg).map_err(std::io::Error::other)?;
-            writeln!(file, "{}", line)?;
+        {
+            let mut file = File::create(&temp_path)?;
+            for msg in &self.queue {
+                let line = serde_json::to_string(msg).map_err(std::io::Error::other)?;
+                writeln!(file, "{}", line)?;
+            }
+            file.sync_all()?;
         }
-
+        rename(&temp_path, &self.file_path)?;
         Ok(())
     }
 
