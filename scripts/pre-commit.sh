@@ -1,13 +1,21 @@
-#!/bin/sh
+#!/usr/bin/env bash
+
+set -euo pipefail
 
 echo "Running pre-commit checks..."
 
-# Ensure no unstaged changes
+# Get list of staged files
 
-if ! git diff --quiet; then
-echo "❌ Unstaged changes found. Stage everything first."
+STAGED_FILES=$(git diff --cached --name-only)
+
+# Check if any staged file has unstaged changes
+
+for file in $STAGED_FILES; do
+if ! git diff --quiet -- "$file"; then
+echo "❌ File '$file' has unstaged changes. Please stage all changes before committing."
 exit 1
 fi
+done
 
 # Format check
 
