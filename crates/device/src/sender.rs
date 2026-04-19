@@ -8,29 +8,41 @@ use crate::queue::disk::DiskQueue;
 pub async fn run(mut conn: Connection, mut queue: DiskQueue) {
     loop {
         if let Some(msg) = queue.peek() {
-            println!("sending: {:?}", msg);
+            tracing::info!(?msg, "sending message");
 
+            // Try sending
             if let Err(e) = conn.send(msg).await {
-                eprintln!("send failed: {}", e);
+                tracing::warn!(error = %e, "send failed, retrying");
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
 
+            // Wait for ACK
             match conn.read().await {
                 Ok(Some(Message::Ack { message_id })) => {
-                    println!("ack received: {}", message_id);
+                    tracing::info!(%message_id, "ack received");
+
                     if let Err(e) = queue.pop() {
-                        eprint!("pop failed: {}", e);
-                    };
+                        tracing::error!(error = %e, "failed to pop from queue");
+                    }
                 }
-                Ok(_) => {
-                    println!("unexpected response");
+
+                Ok(Some(other)) => {
+                    tracing::warn!(?other, "unexpected response from server");
                 }
+
+                Ok(None) => {
+                    tracing::warn!("connection closed by server");
+                    sleep(Duration::from_secs(1)).await;
+                }
+
                 Err(e) => {
-                    eprintln!("read failed: {}", e);
+                    tracing::error!(error = %e, "read failed");
+                    sleep(Duration::from_secs(1)).await;
                 }
             }
         } else {
+            // No messages → idle wait
             sleep(Duration::from_secs(1)).await;
         }
     }

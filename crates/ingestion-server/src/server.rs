@@ -10,14 +10,14 @@ use crate::dedup::Dedup;
 pub async fn run(addr: &str) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
 
-    println!("server listening on {}", addr);
+    tracing::info!(%addr, "server listening");
 
     let dedup = Arc::new(Mutex::new(Dedup::new()));
 
     loop {
         let (stream, peer) = listener.accept().await?;
 
-        println!("new connection: {}", peer);
+        tracing::info!(%peer, "new connection");
 
         let dedup = dedup.clone();
 
@@ -28,32 +28,41 @@ pub async fn run(addr: &str) -> std::io::Result<()> {
                 match conn.read().await {
                     Ok(Some(msg)) => {
                         if let Message::Data { message_id, .. } = msg {
-                            let mut store = dedup.lock().await;
+                            // Scope lock tightly
+                            let is_duplicate = {
+                                let mut store = dedup.lock().await;
 
-                            if store.is_duplicate(&message_id) {
-                                println!("duplicate ignored: {}", message_id);
+                                if store.is_duplicate(&message_id) {
+                                    true
+                                } else {
+                                    store.mark_seen(message_id.clone());
+                                    false
+                                }
+                            };
+
+                            if is_duplicate {
+                                tracing::warn!(%message_id, "duplicate message ignored");
                             } else {
-                                println!("processing message: {}", message_id);
-                                store.mark_seen(message_id.clone());
+                                tracing::info!(%message_id, "processing message");
                             }
 
-                            // ALWAYS send ACK
+                            // ALWAYS send ACK (outside lock)
                             let ack = Message::Ack { message_id };
 
                             if let Err(e) = conn.send(&ack).await {
-                                eprintln!("send error: {}", e);
+                                tracing::error!(%peer, error = %e, "failed to send ack");
                                 break;
                             }
                         }
                     }
 
                     Ok(None) => {
-                        println!("connection closed: {}", peer);
+                        tracing::info!(%peer, "connection closed");
                         break;
                     }
 
                     Err(e) => {
-                        eprintln!("read error: {}", e);
+                        tracing::error!(%peer, error = %e, "read error");
                         break;
                     }
                 }
