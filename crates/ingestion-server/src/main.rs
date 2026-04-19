@@ -1,3 +1,4 @@
+mod dedup;
 mod server;
 
 #[tokio::main]
