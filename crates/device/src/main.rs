@@ -1,4 +1,5 @@
 mod queue;
+mod retry;
 mod sender;
 
 use common::message::Message;
